@@ -37,7 +37,7 @@ spec:
         - wget
         - "-O"
         - "/www/index.html"
-        - https://raw.githubusercontent.com/hugopow/cse/main/index.html
+        - https://raw.githubusercontent.com/hugopow/tkg-dev/main/index.html
         volumeMounts:
         - name: www
           mountPath: "/www"
