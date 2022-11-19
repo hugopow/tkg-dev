@@ -647,7 +647,7 @@ ingress:
   prometheusServicePort: 80
   alertmanagerServicePort: 80
   tlsCertificate:
-    tls.crt: |
+      tls.crt: |
       -----BEGIN CERTIFICATE-----
       MIIFIDCCBAigAwIBAgISA9Wbm3lUc8+1MIIAfS6BhtAEMA0GCSqGSIb3DQEBCwUA
       MDIxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQswCQYDVQQD
