@@ -1,3 +1,10 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: web-statefulset
+  labels:
+    name: web-statefulset
+---
 apiVersion: v1
 kind: Service
 metadata:
