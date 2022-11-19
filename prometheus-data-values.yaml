@@ -641,7 +641,7 @@ prometheus:
       {}
 ingress:
   enabled: true
-  virtual_host_fqdn: "prometheus-tkg-services.vmwire.com"
+  virtual_host_fqdn: "prometheus.tkg-1.vmwire.com"
   prometheus_prefix: "/"
   alertmanager_prefix: "/alertmanager/"
   prometheusServicePort: 80
