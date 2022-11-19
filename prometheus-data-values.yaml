@@ -21,7 +21,7 @@ prometheus:
     annotations: {}
     storageClassName: null
     accessMode: ReadWriteOnce
-    storage: "150Gi"
+    storage: "100Gi"
   config:
     prometheus_yml: |
       global:
