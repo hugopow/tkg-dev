@@ -1,0 +1,790 @@
+namespace: tanzu-system-monitoring
+prometheus:
+  deployment:
+    replicas: 1
+    containers:
+      args: []
+      resources:
+    podAnnotations: {}
+    podLabels: {}
+    configmapReload:
+      containers:
+        args: []
+        resources:
+  service:
+    type: "ClusterIP"
+    port: 80
+    targetPort: 9090
+    labels: {}
+    annotations: {}
+  pvc:
+    annotations: {}
+    storageClassName: null
+    accessMode: ReadWriteOnce
+    storage: "150Gi"
+  config:
+    prometheus_yml: |
+      global:
+        evaluation_interval: 1m
+        scrape_interval: 1m
+        scrape_timeout: 10s
+      rule_files:
+      - /etc/config/alerting_rules.yml
+      - /etc/config/recording_rules.yml
+      - /etc/config/alerts
+      - /etc/config/rules
+      scrape_configs:
+      - job_name: 'prometheus'
+        scrape_interval: 5s
+        static_configs:
+        - targets: ['localhost:9090']
+      - job_name: 'kube-state-metrics'
+        static_configs:
+        - targets: ['prometheus-kube-state-metrics.tanzu-system-monitoring.svc.cluster.local:8080']
+
+      - job_name: 'node-exporter'
+        static_configs:
+        - targets: ['prometheus-node-exporter.tanzu-system-monitoring.svc.cluster.local:9100']
+
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+      - job_name: kubernetes-nodes-cadvisor
+        kubernetes_sd_configs:
+        - role: node
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - replacement: kubernetes.default.svc:443
+          target_label: __address__
+        - regex: (.+)
+          replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+          source_labels:
+          - __meta_kubernetes_node_name
+          target_label: __metrics_path__
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      - job_name: kubernetes-apiservers
+        kubernetes_sd_configs:
+        - role: endpoints
+        relabel_configs:
+        - action: keep
+          regex: default;kubernetes;https
+          source_labels:
+          - __meta_kubernetes_namespace
+          - __meta_kubernetes_service_name
+          - __meta_kubernetes_endpoint_port_name
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      alerting:
+        alertmanagers:
+        - scheme: http
+          static_configs:
+          - targets:
+            - alertmanager.tanzu-system-monitoring.svc:80
+        - kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            regex: default
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: prometheus
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_component]
+            regex: alertmanager
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_probe]
+            regex: .*
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            regex:
+            action: drop
+    alerting_rules_yml: |
+      {}
+    recording_rules_yml: |
+      groups:
+        - name: kube-apiserver.rules
+          interval: 3m
+          rules:
+          - expr: |2
+              (
+                (
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[1d]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[1d]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[1d]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[1d]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[1d]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[1d]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate1d
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[1h]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[1h]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[1h]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[1h]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[1h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[1h]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate1h
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[2h]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[2h]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[2h]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[2h]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[2h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[2h]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate2h
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[30m]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[30m]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[30m]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[30m]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[30m]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[30m]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate30m
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[3d]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[3d]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[3d]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[3d]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[3d]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[3d]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate3d
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[5m]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[5m]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[5m]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[5m]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[5m]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[5m]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate5m
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[6h]))
+                  -
+                  (
+                    (
+                      sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[6h]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[6h]))
+                    +
+                    sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[6h]))
+                  )
+                )
+                +
+                # errors
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET",code=~"5.."}[6h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[6h]))
+            labels:
+              verb: read
+            record: apiserver_request:burnrate6h
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[1d]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[1d]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[1d]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[1d]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate1d
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[1h]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[1h]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[1h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[1h]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate1h
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[2h]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[2h]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[2h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[2h]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate2h
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[30m]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[30m]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[30m]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[30m]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate30m
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[3d]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[3d]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[3d]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[3d]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate3d
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[5m]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[5m]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[5m]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[5m]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate5m
+          - expr: |2
+              (
+                (
+                  # too slow
+                  sum(rate(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[6h]))
+                  -
+                  sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",le="1"}[6h]))
+                )
+                +
+                sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE",code=~"5.."}[6h]))
+              )
+              /
+              sum(rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[6h]))
+            labels:
+              verb: write
+            record: apiserver_request:burnrate6h
+          - expr: |
+              sum by (code,resource) (rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"LIST|GET"}[5m]))
+            labels:
+              verb: read
+            record: code_resource:apiserver_request_total:rate5m
+          - expr: |
+              sum by (code,resource) (rate(apiserver_request_total{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[5m]))
+            labels:
+              verb: write
+            record: code_resource:apiserver_request_total:rate5m
+          - expr: |
+              histogram_quantile(0.99, sum by (le, resource) (rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET"}[5m]))) > 0
+            labels:
+              quantile: "0.99"
+              verb: read
+            record: cluster_quantile:apiserver_request_duration_seconds:histogram_quantile
+          - expr: |
+              histogram_quantile(0.99, sum by (le, resource) (rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"POST|PUT|PATCH|DELETE"}[5m]))) > 0
+            labels:
+              quantile: "0.99"
+              verb: write
+            record: cluster_quantile:apiserver_request_duration_seconds:histogram_quantile
+          - expr: |2
+              sum(rate(apiserver_request_duration_seconds_sum{subresource!="log",verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"}[5m])) without(instance, pod)
+              /
+              sum(rate(apiserver_request_duration_seconds_count{subresource!="log",verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"}[5m])) without(instance, pod)
+            record: cluster:apiserver_request_duration_seconds:mean5m
+          - expr: |
+              histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",subresource!="log",verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"}[5m])) without(instance, pod))
+            labels:
+              quantile: "0.99"
+            record: cluster_quantile:apiserver_request_duration_seconds:histogram_quantile
+          - expr: |
+              histogram_quantile(0.9, sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",subresource!="log",verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"}[5m])) without(instance, pod))
+            labels:
+              quantile: "0.9"
+            record: cluster_quantile:apiserver_request_duration_seconds:histogram_quantile
+          - expr: |
+              histogram_quantile(0.5, sum(rate(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",subresource!="log",verb!~"LIST|WATCH|WATCHLIST|DELETECOLLECTION|PROXY|CONNECT"}[5m])) without(instance, pod))
+            labels:
+              quantile: "0.5"
+            record: cluster_quantile:apiserver_request_duration_seconds:histogram_quantile
+        - interval: 3m
+          name: kube-apiserver-availability.rules
+          rules:
+          - expr: |2
+              1 - (
+                (
+                  # write too slow
+                  sum(increase(apiserver_request_duration_seconds_count{verb=~"POST|PUT|PATCH|DELETE"}[30d]))
+                  -
+                  sum(increase(apiserver_request_duration_seconds_bucket{verb=~"POST|PUT|PATCH|DELETE",le="1"}[30d]))
+                ) +
+                (
+                  # read too slow
+                  sum(increase(apiserver_request_duration_seconds_count{verb=~"LIST|GET"}[30d]))
+                  -
+                  (
+                    (
+                      sum(increase(apiserver_request_duration_seconds_bucket{verb=~"LIST|GET",scope=~"resource|",le="0.1"}[30d]))
+                      or
+                      vector(0)
+                    )
+                    +
+                    sum(increase(apiserver_request_duration_seconds_bucket{verb=~"LIST|GET",scope="namespace",le="0.5"}[30d]))
+                    +
+                    sum(increase(apiserver_request_duration_seconds_bucket{verb=~"LIST|GET",scope="cluster",le="5"}[30d]))
+                  )
+                ) +
+                # errors
+                sum(code:apiserver_request_total:increase30d{code=~"5.."} or vector(0))
+              )
+              /
+              sum(code:apiserver_request_total:increase30d)
+            labels:
+              verb: all
+            record: apiserver_request:availability30d
+          - expr: |2
+              1 - (
+                sum(increase(apiserver_request_duration_seconds_count{job="kubernetes-apiservers",verb=~"LIST|GET"}[30d]))
+                -
+                (
+                  # too slow
+                  (
+                    sum(increase(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope=~"resource|",le="0.1"}[30d]))
+                    or
+                    vector(0)
+                  )
+                  +
+                  sum(increase(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="namespace",le="0.5"}[30d]))
+                  +
+                  sum(increase(apiserver_request_duration_seconds_bucket{job="kubernetes-apiservers",verb=~"LIST|GET",scope="cluster",le="5"}[30d]))
+                )
+                +
+                # errors
+                sum(code:apiserver_request_total:increase30d{verb="read",code=~"5.."} or vector(0))
+              )
+              /
+              sum(code:apiserver_request_total:increase30d{verb="read"})
+            labels:
+              verb: read
+            record: apiserver_request:availability30d
+          - expr: |2
+              1 - (
+                (
+                  # too slow
+                  sum(increase(apiserver_request_duration_seconds_count{verb=~"POST|PUT|PATCH|DELETE"}[30d]))
+                  -
+                  sum(increase(apiserver_request_duration_seconds_bucket{verb=~"POST|PUT|PATCH|DELETE",le="1"}[30d]))
+                )
+                +
+                # errors
+                sum(code:apiserver_request_total:increase30d{verb="write",code=~"5.."} or vector(0))
+              )
+              /
+              sum(code:apiserver_request_total:increase30d{verb="write"})
+            labels:
+              verb: write
+            record: apiserver_request:availability30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="LIST",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="GET",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="POST",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PUT",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PATCH",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="DELETE",code=~"2.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="LIST",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="GET",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="POST",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PUT",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PATCH",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="DELETE",code=~"3.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="LIST",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="GET",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="POST",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PUT",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PATCH",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="DELETE",code=~"4.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="LIST",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="GET",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="POST",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PUT",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="PATCH",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code, verb) (increase(apiserver_request_total{job="kubernetes-apiservers",verb="DELETE",code=~"5.."}[30d]))
+            record: code_verb:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code) (code_verb:apiserver_request_total:increase30d{verb=~"LIST|GET"})
+            labels:
+              verb: read
+            record: code:apiserver_request_total:increase30d
+          - expr: |
+              sum by (code) (code_verb:apiserver_request_total:increase30d{verb=~"POST|PUT|PATCH|DELETE"})
+            labels:
+              verb: write
+            record: code:apiserver_request_total:increase30d
+    alerts_yml: |
+      {}
+    rules_yml: |
+      {}
+ingress:
+  enabled: true
+  virtual_host_fqdn: "prometheus-tkg-services.vmwire.com"
+  prometheus_prefix: "/"
+  alertmanager_prefix: "/alertmanager/"
+  prometheusServicePort: 80
+  alertmanagerServicePort: 80
+  tlsCertificate:
+    tls.crt: |
+      -----BEGIN CERTIFICATE-----
+      MIIFIDCCBAigAwIBAgISA9Wbm3lUc8+1MIIAfS6BhtAEMA0GCSqGSIb3DQEBCwUA
+      MDIxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQswCQYDVQQD
+      EwJSMzAeFw0yMjEwMTQwODIyMTdaFw0yMzAxMTIwODIyMTZaMBcxFTATBgNVBAMM
+      DCoudm13aXJlLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMjj
+      9ijh17J77elw4mYzLI5HdVcp0UTt8K4jzIkjSC4T32gFluIf2bTwomxH0qnn/zwH
+      K7aIPDhiX1QgIjeSG21d2F36JD0jbBcbyR+SZV8TilqUMETAi3R3rCfvaglbtZlJ
+      JKq/53DsoWcZ3SdKWM6qEO7/DOEiSsrzyC+asgCLfCUZblIqiCW44tkCLov3+dMW
+      H4WEIgdO0t1B6W0kuc2Lw3lsGMt2dPmqU0gPTQkNZ8D/EhWWhXZybWiHGLYOvhjz
+      n8Zb54QrV0tDI/O9TihLeEhURJlkRt27DQ0JSe9I8/tDlCsAhGie2+CJVhUY6i7B
+      gNXhQqN82I7xbavwx3cCAwEAAaOCAkkwggJFMA4GA1UdDwEB/wQEAwIFoDAdBgNV
+      HSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDAYDVR0TAQH/BAIwADAdBgNVHQ4E
+      FgQUMekgM7vqhXsbE3yxWjkCbWmhNKgwHwYDVR0jBBgwFoAUFC6zF7dYVsuuUAlA
+      5h+vnYsUwsYwVQYIKwYBBQUHAQEESTBHMCEGCCsGAQUFBzABhhVodHRwOi8vcjMu
+      by5sZW5jci5vcmcwIgYIKwYBBQUHMAKGFmh0dHA6Ly9yMy5pLmxlbmNyLm9yZy8w
+      FwYDVR0RBBAwDoIMKi52bXdpcmUuY29tMEwGA1UdIARFMEMwCAYGZ4EMAQIBMDcG
+      CysGAQQBgt8TAQEBMCgwJgYIKwYBBQUHAgEWGmh0dHA6Ly9jcHMubGV0c2VuY3J5
+      cHQub3JnMIIBBgYKKwYBBAHWeQIEAgSB9wSB9ADyAHcAejKMVNi3LbYg6jjgUh7p
+      hBZwMhOFTTvSK8E6V6NS61IAAAGD1c0wJgAABAMASDBGAiEArB9QGuU5Xau7OuiA
+      6QNodByAqefvEeUg8h9XVfHj2NkCIQCL2gvDOlp0ktM9orBI1t1t//NHKu7OJLyU
+      jzEUsn1e2wB3ALc++yTfnE26dfI5xbpY9Gxd/ELPep81xJ4dCYEl7bSZAAABg9XN
+      MfoAAAQDAEgwRgIhAKb/KlWtotSnJADTFtcnfWoo6VazNEwy1cBKoCbhLaB7AiEA
+      yoRmJVotUO+rY8JugDOZZyFBlWng6PnTjvDdA3NUrY8wDQYJKoZIhvcNAQELBQAD
+      ggEBACyEkhpXFqOpAHj13wUlmDbVecvYVqy7jUkbSr0UViwqZoqMlQHoUKUG5r+O
+      RbmjbASsc3KdmQ2NSFFNXIwN4qzrGLvlXtt8Y5iE2Q+5N0mMJfweAuSSaWmv1OjZ
+      7p+VxGWsKnWSS5RoigcH4+w0eUOVz/kvduVD5MHPye8tPHxpbrJk2INxFBVrv9nJ
+      jketP4PCmy5Ex1/ZNcM/8+ggbf+wir5tyPlI+rTsYcaVjRlzoVDikWCSIhRuS81h
+      Ph+5lBhv7pppCBudi6hIC6X1SGXkQGmJ6v3tRXwL3aQoadFm6lQmv8K6ds/lKBUd
+      ORxH1OkoWoXsdLIuxeax80SY5lU=
+      -----END CERTIFICATE-----
+
+    tls.key: |
+      -----BEGIN PRIVATE KEY-----
+      MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDI4/Yo4deye+3p
+      cOJmMyyOR3VXKdFE7fCuI8yJI0guE99oBZbiH9m08KJsR9Kp5/88Byu2iDw4Yl9U
+      ICI3khttXdhd+iQ9I2wXG8kfkmVfE4palDBEwIt0d6wn72oJW7WZSSSqv+dw7KFn
+      Gd0nSljOqhDu/wzhIkrK88gvmrIAi3wlGW5SKogluOLZAi6L9/nTFh+FhCIHTtLd
+      QeltJLnNi8N5bBjLdnT5qlNID00JDWfA/xIVloV2cm1ohxi2Dr4Y85/GW+eEK1dL
+      QyPzvU4oS3hIVESZZEbduw0NCUnvSPP7Q5QrAIRontvgiVYVGOouwYDV4UKjfNiO
+      8W2r8Md3AgMBAAECggEAb0RsFEq6mJ4xsQmYLDkN5aRIpsV/pmkP1LP5Vr/W+8aA
+      B/KIlqhDggeCPu0tDnR0FwB1wr0EdcpuuH6v1Q206UeATtT8e2yCMu5t4HHKefWt
+      vOu1LG9lDlY2YUwm9BX6qHMtvvFZtF8sKpnVtyxjsdvaUzWrIYtH189cwpkxHEEq
+      Ubqk0f90zVRe1HgsrQzi7myl3l2r6jOwNJGiAXJmJNYLccgLTecEVhv6HoPbOILo
+      54dT8/lFLe0PV0kV9SGj48pJ6lTfRm2G8gcGPa3+TX1GSqDFjEoHG6mtH7qdNV31
+      EPxQMjJOq+msIqzFpmCkcBw0GXAvxfb52zEDEEsnuQKBgQDr6KiiTq2curi+bHHp
+      uhNXmjcJUgj1g8LJgOxFi4hf4QbSL27Et0vrjhviAazZdorphQmrWZOj8pIOmfBa
+      n80qsyLJ/J1prc5/JPV7WiS1oLSD2RsryxuBCR83QDzvBWgJREHczP+Lxw3a2juG
+      k2p3k0+ET63LNDKLO+znbJ9AhQKBgQDZ/9MHH5q/BhWoj7+lkKOaNVHmYoK9QQJX
+      CRZo/fdU9Q8AQXd2sWhAeZFN3/JYoQetZDSuKQ5VScal2g9wGwMsvrnPhzDZ5/XM
+      DsMfrVWgBBrsZS/UILXSxiqqJFYQOjSvDtCtwEGUlt9Sc2SqYYbgkKZ9txDoWhBa
+      RYUh9UeGywKBgQCdjVe6dmNajhW+D30QhNZQJk1layVSmvnnS7QASkz9A7Njgowu
+      0t/gZJtYmJfQ8Gubw98OUhfZYbKMD+FHFPyX7OVqEs0qfAqyPYO5Kx3jM337pG6S
+      E+a9idMQOlW3qFuv/KckCMEOoBUvuZoRqbhsPbTYf8JpOOYcuRvh/1hoZQKBgFhD
+      y4a71iT36rcIFNmNWaBrbFCynCrScocY59j00zqzyjIZT6xgIkzQq/Ny9CXMdVZQ
+      F0BY4TPJHkQyqUODvGJWitcq7q2bzJqlc32U6fFTGC+UvKvP3q6Li+S9t5b0ajZi
+      8j0XdbYa7CrvC9gsirbL+o02HQNmy+4w7bmVHTPHAoGAGOHdvzgJFCVlWMh9x4qQ
+      PxVF0MF0iKx9YRhvvwPm5an0pepX0aHTiK2anfMJkefEWXchcvoRdjEvWy5E3mba
+      xJIwP8eEsiqgqq+yRn8s5iuVwVxlKuhA8JcMEMkTxFiyjVud7i4ICEpe2vNGlCDn
+      KBlB6asVR46nXo/SKnYBRtw=
+      -----END PRIVATE KEY-----
+    ca.crt:
+alertmanager:
+  deployment:
+    replicas: 1
+    containers:
+      resources:
+    podAnnotations: {}
+    podLabels: {}
+  service:
+    type: "ClusterIP"
+    port: 80
+    targetPort: 9093
+    labels: {}
+    annotations: {}
+  pvc:
+    annotations: {}
+    storageClassName: null
+    accessMode: ReadWriteOnce
+    storage: "2Gi"
+  config:
+    alertmanager_yml: |
+      global: {}
+      receivers:
+      - name: default-receiver
+      templates:
+      - '/etc/alertmanager/templates/*.tmpl'
+      route:
+        group_interval: 5m
+        group_wait: 10s
+        receiver: default-receiver
+        repeat_interval: 3h
+kube_state_metrics:
+  deployment:
+    replicas: 1
+    containers:
+      resources:
+    podAnnotations: {}
+    podLabels: {}
+  service:
+    type: "ClusterIP"
+    port: 80
+    targetPort: 8080
+    telemetryPort: 81
+    telemetryTargetPort: 8081
+    labels: {}
+    annotations: {}
+node_exporter:
+  daemonset:
+    hostNetwork: false
+    updatestrategy: RollingUpdate
+    containers:
+      resources:
+    podAnnotations: {}
+    podLabels: {}
+  service:
+    type: "ClusterIP"
+    port: 9100
+    targetPort: 9100
+    labels: {}
+    annotations: {}
+pushgateway:
+  deployment:
+    replicas: 1
+    containers:
+      resources:
+    podAnnotations: {}
+    podLabels: {}
+  service:
+    type: "ClusterIP"
+    port: 9091
+    targetPort: 9091
+    labels: {}
+    annotations: {}
+cadvisor:
+  daemonset:
+    updatestrategy: RollingUpdate
+    containers:
+      resources:
+    podAnnotations: {}
+    podLabels: {}
