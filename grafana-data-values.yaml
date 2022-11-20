@@ -1,0 +1,130 @@
+namespace: tanzu-system-dashboards
+grafana:
+  deployment:
+    replicas: 1
+    containers:
+      resources:
+    podLabels: {}
+    podAnnotations: {}
+    k8sSidecar:
+      containers:
+        resources:
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 3000
+    labels: {}
+    annotations: {}
+  config:
+    grafana_ini: |
+      [analytics]
+      check_for_updates = false
+      [grafana_net]
+      url = https://grafana.com
+      [log]
+      mode = console
+      [paths]
+      data = /var/lib/grafana/data
+      logs = /var/log/grafana
+      plugins = /var/lib/grafana/plugins
+      provisioning = /etc/grafana/provisioning
+    datasource_yaml: |-
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: prometheus-server.tanzu-system-monitoring.svc.cluster.local
+          access: proxy
+          isDefault: true
+    dashboardProvider_yaml: |-
+      apiVersion: 1
+      providers:
+        - name: 'sidecarDashboardProvider'
+          orgId: 1
+          folder: ''
+          folderUid: ''
+          type: file
+          disableDeletion: false
+          updateIntervalSeconds: 10
+          allowUiUpdates: false
+          options:
+            path: /tmp/dashboards
+            foldersFromFilesStructure: true
+  pvc:
+    annotations: {}
+    storageClassName: null
+    accessMode: ReadWriteOnce
+    storage: "2Gi"
+  secret:
+    type: "Opaque"
+    admin_user: "YWRtaW4="
+    admin_password: "Vm13YXJlMSE="
+ingress:
+  enabled: true
+  virtual_host_fqdn: "grafana.tkg-1.vmwire.com"
+  prefix: "/"
+  servicePort: 80
+  tlsCertificate:
+    tls.crt: |
+      -----BEGIN CERTIFICATE-----
+      MIIFIDCCBAigAwIBAgISA9Wbm3lUc8+1MIIAfS6BhtAEMA0GCSqGSIb3DQEBCwUA
+      MDIxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQswCQYDVQQD
+      EwJSMzAeFw0yMjEwMTQwODIyMTdaFw0yMzAxMTIwODIyMTZaMBcxFTATBgNVBAMM
+      DCoudm13aXJlLmNvbTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMjj
+      9ijh17J77elw4mYzLI5HdVcp0UTt8K4jzIkjSC4T32gFluIf2bTwomxH0qnn/zwH
+      K7aIPDhiX1QgIjeSG21d2F36JD0jbBcbyR+SZV8TilqUMETAi3R3rCfvaglbtZlJ
+      JKq/53DsoWcZ3SdKWM6qEO7/DOEiSsrzyC+asgCLfCUZblIqiCW44tkCLov3+dMW
+      H4WEIgdO0t1B6W0kuc2Lw3lsGMt2dPmqU0gPTQkNZ8D/EhWWhXZybWiHGLYOvhjz
+      n8Zb54QrV0tDI/O9TihLeEhURJlkRt27DQ0JSe9I8/tDlCsAhGie2+CJVhUY6i7B
+      gNXhQqN82I7xbavwx3cCAwEAAaOCAkkwggJFMA4GA1UdDwEB/wQEAwIFoDAdBgNV
+      HSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIwDAYDVR0TAQH/BAIwADAdBgNVHQ4E
+      FgQUMekgM7vqhXsbE3yxWjkCbWmhNKgwHwYDVR0jBBgwFoAUFC6zF7dYVsuuUAlA
+      5h+vnYsUwsYwVQYIKwYBBQUHAQEESTBHMCEGCCsGAQUFBzABhhVodHRwOi8vcjMu
+      by5sZW5jci5vcmcwIgYIKwYBBQUHMAKGFmh0dHA6Ly9yMy5pLmxlbmNyLm9yZy8w
+      FwYDVR0RBBAwDoIMKi52bXdpcmUuY29tMEwGA1UdIARFMEMwCAYGZ4EMAQIBMDcG
+      CysGAQQBgt8TAQEBMCgwJgYIKwYBBQUHAgEWGmh0dHA6Ly9jcHMubGV0c2VuY3J5
+      cHQub3JnMIIBBgYKKwYBBAHWeQIEAgSB9wSB9ADyAHcAejKMVNi3LbYg6jjgUh7p
+      hBZwMhOFTTvSK8E6V6NS61IAAAGD1c0wJgAABAMASDBGAiEArB9QGuU5Xau7OuiA
+      6QNodByAqefvEeUg8h9XVfHj2NkCIQCL2gvDOlp0ktM9orBI1t1t//NHKu7OJLyU
+      jzEUsn1e2wB3ALc++yTfnE26dfI5xbpY9Gxd/ELPep81xJ4dCYEl7bSZAAABg9XN
+      MfoAAAQDAEgwRgIhAKb/KlWtotSnJADTFtcnfWoo6VazNEwy1cBKoCbhLaB7AiEA
+      yoRmJVotUO+rY8JugDOZZyFBlWng6PnTjvDdA3NUrY8wDQYJKoZIhvcNAQELBQAD
+      ggEBACyEkhpXFqOpAHj13wUlmDbVecvYVqy7jUkbSr0UViwqZoqMlQHoUKUG5r+O
+      RbmjbASsc3KdmQ2NSFFNXIwN4qzrGLvlXtt8Y5iE2Q+5N0mMJfweAuSSaWmv1OjZ
+      7p+VxGWsKnWSS5RoigcH4+w0eUOVz/kvduVD5MHPye8tPHxpbrJk2INxFBVrv9nJ
+      jketP4PCmy5Ex1/ZNcM/8+ggbf+wir5tyPlI+rTsYcaVjRlzoVDikWCSIhRuS81h
+      Ph+5lBhv7pppCBudi6hIC6X1SGXkQGmJ6v3tRXwL3aQoadFm6lQmv8K6ds/lKBUd
+      ORxH1OkoWoXsdLIuxeax80SY5lU=
+      -----END CERTIFICATE-----
+
+    tls.key: |
+      -----BEGIN PRIVATE KEY-----
+      MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDI4/Yo4deye+3p
+      cOJmMyyOR3VXKdFE7fCuI8yJI0guE99oBZbiH9m08KJsR9Kp5/88Byu2iDw4Yl9U
+      ICI3khttXdhd+iQ9I2wXG8kfkmVfE4palDBEwIt0d6wn72oJW7WZSSSqv+dw7KFn
+      Gd0nSljOqhDu/wzhIkrK88gvmrIAi3wlGW5SKogluOLZAi6L9/nTFh+FhCIHTtLd
+      QeltJLnNi8N5bBjLdnT5qlNID00JDWfA/xIVloV2cm1ohxi2Dr4Y85/GW+eEK1dL
+      QyPzvU4oS3hIVESZZEbduw0NCUnvSPP7Q5QrAIRontvgiVYVGOouwYDV4UKjfNiO
+      8W2r8Md3AgMBAAECggEAb0RsFEq6mJ4xsQmYLDkN5aRIpsV/pmkP1LP5Vr/W+8aA
+      B/KIlqhDggeCPu0tDnR0FwB1wr0EdcpuuH6v1Q206UeATtT8e2yCMu5t4HHKefWt
+      vOu1LG9lDlY2YUwm9BX6qHMtvvFZtF8sKpnVtyxjsdvaUzWrIYtH189cwpkxHEEq
+      Ubqk0f90zVRe1HgsrQzi7myl3l2r6jOwNJGiAXJmJNYLccgLTecEVhv6HoPbOILo
+      54dT8/lFLe0PV0kV9SGj48pJ6lTfRm2G8gcGPa3+TX1GSqDFjEoHG6mtH7qdNV31
+      EPxQMjJOq+msIqzFpmCkcBw0GXAvxfb52zEDEEsnuQKBgQDr6KiiTq2curi+bHHp
+      uhNXmjcJUgj1g8LJgOxFi4hf4QbSL27Et0vrjhviAazZdorphQmrWZOj8pIOmfBa
+      n80qsyLJ/J1prc5/JPV7WiS1oLSD2RsryxuBCR83QDzvBWgJREHczP+Lxw3a2juG
+      k2p3k0+ET63LNDKLO+znbJ9AhQKBgQDZ/9MHH5q/BhWoj7+lkKOaNVHmYoK9QQJX
+      CRZo/fdU9Q8AQXd2sWhAeZFN3/JYoQetZDSuKQ5VScal2g9wGwMsvrnPhzDZ5/XM
+      DsMfrVWgBBrsZS/UILXSxiqqJFYQOjSvDtCtwEGUlt9Sc2SqYYbgkKZ9txDoWhBa
+      RYUh9UeGywKBgQCdjVe6dmNajhW+D30QhNZQJk1layVSmvnnS7QASkz9A7Njgowu
+      0t/gZJtYmJfQ8Gubw98OUhfZYbKMD+FHFPyX7OVqEs0qfAqyPYO5Kx3jM337pG6S
+      E+a9idMQOlW3qFuv/KckCMEOoBUvuZoRqbhsPbTYf8JpOOYcuRvh/1hoZQKBgFhD
+      y4a71iT36rcIFNmNWaBrbFCynCrScocY59j00zqzyjIZT6xgIkzQq/Ny9CXMdVZQ
+      F0BY4TPJHkQyqUODvGJWitcq7q2bzJqlc32U6fFTGC+UvKvP3q6Li+S9t5b0ajZi
+      8j0XdbYa7CrvC9gsirbL+o02HQNmy+4w7bmVHTPHAoGAGOHdvzgJFCVlWMh9x4qQ
+      PxVF0MF0iKx9YRhvvwPm5an0pepX0aHTiK2anfMJkefEWXchcvoRdjEvWy5E3mba
+      xJIwP8eEsiqgqq+yRn8s5iuVwVxlKuhA8JcMEMkTxFiyjVud7i4ICEpe2vNGlCDn
+      KBlB6asVR46nXo/SKnYBRtw=
+      -----END PRIVATE KEY-----
+
+    ca.crt:
