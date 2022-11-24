@@ -680,34 +680,7 @@ ingress:
       -----END CERTIFICATE-----
 
     tls.key: |
-      -----BEGIN PRIVATE KEY-----
-      MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCyYhyq33/CfIzo
-      3FpJ+R3EDWncH6hzjetLDsXfsi0rGbPY2rkt12Aen4UWU6dGk6R8IsKyAJxFItVQ
-      92b7+yLNv7VzBh//er74jQBTdTYlsRk2xoNEX0vwylpKYyw5mQFbf5AGD/zPK+KO
-      FG9nlxzmPSV029wHbnzBjURkEf/7L7jy5f46MTa8PCkyGu6LCqEBxqZPjdSXSWTa
-      hRlPWxRPsGYtcDhCdf/Q1x9JjkbjaGGX2GCmRjWPNR7XdrKoMfA0w7PyXHVt8xzl
-      ox1jReSlq6EQYuOXVXAIMu7eUGD40Y8N1Kg1eSIjL+9MyF0FIR9H4ZSYsiHg7A/7
-      hle0u8z7AgMBAAECggEADzjZGmm9FMMdISfgmoxkEl1UqcCX1tiG+h42G3swaIum
-      cbxkbfmBjctuB3Q3A4pI0IEE3Ty5GRs6WdDq3FjXZPhViw28QEhgsIQTwYtwhfHh
-      ZW+2Nujs6YzS/KMO3JFmcMDncOT/XUxw5k/vG8dk427XWewDEC1I/xlHe0Sf8/a/
-      k4kXnCZ49QZccj0dQUFJvqSLKWAOSzydIKCz+HcrEFXOKYVMRfjEc2exzeFYcEhk
-      DasPXLqz255+KDP2yWlNXf4wekv0WRbOe3NgBZjZ8IAbFCN4rLNFTNpYZK1yNAlU
-      i+7IM3Ekgi2SjKUuznIbkqHhmemw491oL4oRoUt7bQKBgQDO6TVxx7bTDQ2IVWgU
-      +tXC+p7Qe9adcOmLf1I3uljp7C+EuIWYHbRdcgxMl5zH472En1/M1p7BFiwyk0Z2
-      qUHhydZMmtG+VERckB+aRiGvqLpZZT+35kDjGGc3l8Q0lyL6hhMxfSdiiT0ZUgxe
-      MoAR9lGIfZOn7VLel3N1KuIYbwKBgQDctEPBmrvjrEihVpLIyuOMBi5eA1ut7JZC
-      cim4uDn29au/6UHKrf1f/N8jR5Ov8yfWiVKa6n+gT6M+IIYQZnpgnfzJHogNuofu
-      KqDmvuUx+UFoEQI4hh9UpmNQO9IOJch2Zd3iX7pTNoUxYiF7awUd2wGJhIEEcWwC
-      lnvi6TIiNQKBgB4CQscSwRhQ/1JzmJnaW2Bg+uGf5FuHQcgCmkkM1NJwd9/W50FN
-      pZgb7164anuvMxBmEP3jbrjwX06if4i8OZrmrBcGKT9id1u5Z2v3mfEhFo3ammgw
-      k96b7nRopYM/HEqbYXM/BJRM9TiT5slOp7ZzNBYIqH6lc+xmqM8ofgwvAoGAB7f2
-      NqsmrwuzbpEMiSEvXBJLRNZxOl/v0VsUwnUO8egdnZSWzHPRTK4XT7CNJbYnSoV6
-      8hgJZp3iY6XXinNLDF36HT6IG5LOdjHfdrJuaZUCCJWvsjJeniNDjebJrdz8acee
-      PvCCH67kcZmw+hQAFc82+ow7xuAAmwaQRptJOZECgYEAoByy5Fo5yTXQX4tDdoNX
-      Z8acg1N3pS4yYVAK8/mm7niJb2+iMIOOXiphGDcViBs+vVopx8baBswoOAk+aJ37
-      EmAm3I22y5nOkJRpWUdK2gJUa/EiYawAkTWTQKt7HIQL96Er3ngjR24sSVxHWKV4
-      Sro43LiBj5vCZhfNR1URAX0=
-      -----END PRIVATE KEY-----
+
 
     ca.crt:
 alertmanager:
