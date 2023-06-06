@@ -1,0 +1,103 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: web-statefulset
+  labels:
+    name: web-statefulset
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-statefulset-service
+  namespace: web-statefulset
+spec:
+  selector:
+    app: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: web-statefulset
+  namespace: web-statefulset
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+  serviceName: "web-statefulset-service"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      terminationGracePeriodSeconds: 10
+      initContainers:
+      - name: install
+        image: busybox
+        command:
+        - wget
+        - "-O"
+        - "/www/index.html"
+        - https://raw.githubusercontent.com/hugopow/tkg-dev/main/index.html
+        volumeMounts:
+        - name: www
+          mountPath: "/www"
+      containers:
+      - name: nginx
+        image: k8s.gcr.io/nginx-slim:0.8
+        ports:
+        - containerPort: 80
+          name: nginx
+        volumeMounts:
+        - name: www
+          mountPath: /usr/share/nginx/html
+  volumeClaimTemplates:
+  - metadata:
+      name: www
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: "ssd"
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUVWekNDQXorZ0F3SUJBZ0lTQkdMRjNaZEN5blpFRDdKZDdiV0dCMG9VTUEwR0NTcUdTSWIzRFFFQkN3VUEKTURJeEN6QUpCZ05WQkFZVEFsVlRNUll3RkFZRFZRUUtFdzFNWlhRbmN5QkZibU55ZVhCME1Rc3dDUVlEVlFRRApFd0pTTXpBZUZ3MHlNekEyTURVeE1ETXhNalJhRncweU16QTVNRE14TURNeE1qTmFNQm94R0RBV0JnTlZCQU1NCkR5b3VaMk11ZG0xM2FYSmxMbU52YlRCWk1CTUdCeXFHU000OUFnRUdDQ3FHU000OUF3RUhBMElBQk8yRE4ycHAKRW5vUzBIN0hTNG9VR2oyT2FuRTQ2WkZpU3dUc1g3TmwzMzhpNFZPVktrQU5adVh0azRiODRiUnpIVVh6aWRPSgpsejVncnNHUVpERFUvZUNqZ2dKSU1JSUNSREFPQmdOVkhROEJBZjhFQkFNQ0I0QXdIUVlEVlIwbEJCWXdGQVlJCkt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01Bd0dBMVVkRXdFQi93UUNNQUF3SFFZRFZSME9CQllFRlA2UXFwZnQKYVdITU9hOGlwWlFrRlpWTmpvTStNQjhHQTFVZEl3UVlNQmFBRkJRdXN4ZTNXRmJMcmxBSlFPWWZyNTJMRk1MRwpNRlVHQ0NzR0FRVUZCd0VCQkVrd1J6QWhCZ2dyQmdFRkJRY3dBWVlWYUhSMGNEb3ZMM0l6TG04dWJHVnVZM0l1CmIzSm5NQ0lHQ0NzR0FRVUZCekFDaGhab2RIUndPaTh2Y2pNdWFTNXNaVzVqY2k1dmNtY3ZNQm9HQTFVZEVRUVQKTUJHQ0R5b3VaMk11ZG0xM2FYSmxMbU52YlRCTUJnTlZIU0FFUlRCRE1BZ0dCbWVCREFFQ0FUQTNCZ3NyQmdFRQpBWUxmRXdFQkFUQW9NQ1lHQ0NzR0FRVUZCd0lCRmhwb2RIUndPaTh2WTNCekxteGxkSE5sYm1OeWVYQjBMbTl5Clp6Q0NBUUlHQ2lzR0FRUUIxbmtDQkFJRWdmTUVnZkFBN2dCMUFIb3lqRlRZdHkyMklPbzQ0RkllNllRV2NESVQKaFUwNzBpdkJPbGVqVXV0U0FBQUJpSXRUZjQwQUFBUURBRVl3UkFJZ1NMK2JnTEZqRkhlRmI4K2QyWVhySHNySQo3K0RycTJucUdON2RnZFVCQ3ZRQ0lFMXdmVDFzZXNmVVVVdEdzdUcxaVJtNTdiTjg5WldiZ2tPOHlCUmpXSXFVCkFIVUF0ejc3Sk4rY1RicDE4am5GdWxqMGJGMzhRczk2bnpYRW5oMEpnU1h0dEprQUFBR0lpMU4vaEFBQUJBTUEKUmpCRUFpQTd4aEVXSHNBS1N4ak41bnNLSmx2MnUvdjMxbDVhQkFoWCtvZjVRNzlOVGdJZ0dmL09Oa2U1YjJhbQoxL05yREdmZG50d0lnU1VFclhHeXAvOHFWYWxTQ1pFd0RRWUpLb1pJaHZjTkFRRUxCUUFEZ2dFQkFJR2VNNjlPCjBEcWtRME5BUmQ4U1VkcDdxQzZlRElpM3FDSkJIaTFqYlFJUjhvRE5FVUdDWVlTTHlkNldKTE9jRkh6Nnd0MUMKeVI0VWk5RkxOSkNDbVpKbGkxSFFBWHl6VndrRDE5MDMza28rdG9rdzc0TElDWnFpdGlyTkNkNHg2SzNBcFRyMgp5QVF4MWoyT3ZmU3JSOTFOdjVzMVp0WllsUEpFS3h6SjRPVXNQdFBKclFUUllaaVcvVXJ0cSsxdERVbXZQUEVrCnZ5MDdwZ3h1M3NrbmJMMThvS3BieHlPaXFNNEczbERQSnNsbU8vRXZHTHp0K0Jad3RpUGlweUwyVjBEL1lGalAKRXVheVdJWnVQajZsS3Z2VXBlcUxZbDh2QThNeVh4bWZOUk5rRjQ2WG9sTzVpczNkSjdMaThWWVBvblRvTUVYbwpuWVFVRDJVdlZtNGxjbkU9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JR0hBZ0VBTUJNR0J5cUdTTTQ5QWdFR0NDcUdTTTQ5QXdFSEJHMHdhd0lCQVFRZ2JiRkQ1NVdyeWwrNWpoeGsKdHRwWlBQeUFhMm5xREgzT2RrS2hsc1RkTlZpaFJBTkNBQVR0Z3pkcWFSSjZFdEIreDB1S0ZCbzlqbXB4T09tUgpZa3NFN0YrelpkOS9JdUZUbFNwQURXYmw3Wk9HL09HMGN4MUY4NG5UaVpjK1lLN0JrR1F3MVAzZwotLS0tLUVORCBQUklWQVRFIEtFWS0tLS0tCg==
+kind: Secret
+metadata:
+  name: nginx-tls
+  namespace: web-statefulset
+type: kubernetes.io/tls
+---
+apiVersion: projectcontour.io/v1
+kind: HTTPProxy
+metadata:
+  annotations:
+  labels:
+    app: nginx
+  name: nginx-httpproxy
+  namespace: web-statefulset
+spec:
+  routes:
+  - conditions:
+    - prefix: /
+    pathRewritePolicy:
+      replacePrefix:
+      - prefix: /
+        replacement: /
+    services:
+    - name: web-statefulset-service
+      port: 80
+  virtualhost:
+    fqdn: nginx.gc.vmwire.com
+    tls:
+      secretName: nginx-tls
