@@ -1,0 +1,23 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubeapps-ingress
+  namespace: kubeapps
+  annotations:
+    ako.vmware.com/enable-tls: "true"
+  labels:
+    app: kubeapps-ingress
+spec:
+  ingressClassName: avi-lb
+  rules:
+    - host: "kubeapps.tkg-workload1.vmwire.com"
+      http:
+        paths:
+          - pathType: Prefix
+            path: /
+            backend:
+              service:
+                name: kubeapps
+                port:
+                  number: 80
